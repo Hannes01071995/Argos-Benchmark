@@ -49,6 +49,7 @@
     <Compile Include="argos\ArgosRequestFactory.cs" />
     <Compile Include="BenchmarkClient.cs" />
     <Compile Include="BenchmarkConfiguration.cs" />
+    <Compile Include="BenchmarkRun.cs" />
     <Compile Include="data\entities\Root.cs" />
     <Compile Include="data\IArgosInstance.cs" />
     <Compile Include="data\IArgosType.cs" />
@@ -67,6 +68,12 @@
     <Compile Include="Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="SqlImage.cs" />
+    <Compile Include="ui\CreateBenchmarkRun.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="ui\CreateBenchmarkRun.Designer.cs">
+      <DependentUpon>CreateBenchmarkRun.cs</DependentUpon>
+    </Compile>
     <Compile Include="ui\Main.cs">
       <SubType>Form</SubType>
     </Compile>
@@ -82,6 +89,9 @@
       <AutoGen>True</AutoGen>
       <DependentUpon>Resources.resx</DependentUpon>
     </Compile>
+    <EmbeddedResource Include="ui\CreateBenchmarkRun.resx">
+      <DependentUpon>CreateBenchmarkRun.cs</DependentUpon>
+    </EmbeddedResource>
     <EmbeddedResource Include="ui\Main.resx">
       <DependentUpon>Main.cs</DependentUpon>
     </EmbeddedResource>
