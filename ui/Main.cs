@@ -30,6 +30,7 @@ namespace ArgosBenchmark.ui
         #region private members
         private BenchmarkConfiguration m_Configuration = new BenchmarkConfiguration();
         private Timer m_RefreshProgressTimer = new Timer();
+        private SqlImage m_SqlImage;
         #endregion
 
         #region private const
@@ -71,10 +72,14 @@ namespace ArgosBenchmark.ui
                 ToggleUILock();
                 try
                 {
-                    SqlImage image = new SqlImage(txtSqlFile.Text);
+                    if (m_SqlImage?.SqlFilePath != txtSqlFile.Text)
+                    {
+                        m_SqlImage = new SqlImage(txtSqlFile.Text);
+                    }
+
                     bStart.Text = STOP_TEXT;
                     SetProgress(0);
-                    BenchmarkRunner.Instance.Run(m_Configuration, image);
+                    BenchmarkRunner.Instance.Run(m_Configuration, m_SqlImage);
                 }
                 catch (Exception)
                 {
