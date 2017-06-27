@@ -125,7 +125,7 @@ namespace ArgosBenchmark
                     progress += client.Progress;
                 }
 
-                return progress / Math.Max(1, m_Clients.Count);
+                return (m_CurrentRepetitions - 1) / (double)m_CurrentRun.Repetitions + (progress / (Math.Max(1, m_Clients.Count) * m_CurrentRun.Repetitions));
             }
         }
         #endregion
@@ -162,25 +162,41 @@ namespace ArgosBenchmark
         {
             get { return m_RequestFactory; }
         }
+
+        public int CurrentRunIndex
+        {
+            get
+            {
+                for (int i = 0; i < m_Configuration.Runs.Count; i++)
+                {
+                    if (m_Configuration.Runs[i].Equals(m_CurrentRun))
+                    {
+                        return i;
+                    }
+                }
+
+                return 0;
+            }
+        }
         #endregion
 
         #region public methods
-        public void Run(BenchmarkConfiguration Configuration, SqlImage SqlImage)
+        public void Run(BenchmarkConfiguration Configuration)
         {
-            if (m_Running)
+            if (m_Running || Configuration.Runs.Count == 0)
             {
                 return;
             }
 
             m_Running = true;
             m_Configuration = Configuration;
-            m_SqlImage = SqlImage;
-            m_RequestFactory = new ArgosRequestFactory(Configuration, SqlImage);
+            m_CurrentRun = Configuration.Runs.First();
+            m_CurrentRepetitions = 0;
+            m_RequestFactory = new ArgosRequestFactory(Configuration, Configuration.SqlImage);
 
             Started?.Invoke();
 
-            m_Clients = new List<BenchmarkClient>();
-            CreateClients(Configuration);
+            CreateClients(m_CurrentRun);
             StartClients();
         }
 
@@ -195,16 +211,17 @@ namespace ArgosBenchmark
             Finished?.Invoke();
 
             StopClients();
-            PrintResults();
         }
         #endregion
 
         #region private members
         private bool m_Running = false;
         private BenchmarkConfiguration m_Configuration;
-        private SqlImage m_SqlImage;
+        private BenchmarkRun m_CurrentRun;
+        private long m_CurrentRepetitions = 0;
         private List<BenchmarkClient> m_Clients = new List<BenchmarkClient>();
         private IRequestFactory m_RequestFactory;
+        private object m_Lock = new object();
 
         private static readonly string OUTPUT_DIR = $"{Environment.CurrentDirectory}{Path.DirectorySeparatorChar}output";
         private static readonly string OUTPUT_FILE = $"{OUTPUT_DIR}{Path.DirectorySeparatorChar}{DateTime.Now.ToString().Replace(".", "_").Replace(":", "_")}.csv";
@@ -217,62 +234,73 @@ namespace ArgosBenchmark
         #region private methods
         private void StartClients()
         {
-            foreach (BenchmarkClient client in m_Clients)
+            lock (m_Lock)
             {
-                client.Finished += Client_Finished;
-                client.Start();
+                m_CurrentRepetitions++;
+                foreach (BenchmarkClient client in m_Clients)
+                {
+                    client.Finished += Client_Finished;
+                    client.Start();
+                }
             }
         }
 
         private void StopClients()
         {
-            foreach (BenchmarkClient client in m_Clients)
+            lock (m_Lock)
             {
-                client.Finished -= Client_Finished;
-                client.Stop();
+                foreach (BenchmarkClient client in m_Clients)
+                {
+                    client.Finished -= Client_Finished;
+                    client.Stop();
+                }
             }
         }
 
-        private void CreateClients(BenchmarkConfiguration Configuration)
+        private void CreateClients(BenchmarkRun RunConfiguration)
         {
-            long requests = Configuration.Requests;
-            if (Configuration.Clients <= MAX_THREADS)
+            lock (m_Lock)
             {
-                for (int i = 0; i < Configuration.Clients; i++)
+                m_Clients.Clear();
+                long requests = RunConfiguration.Requests;
+                if (RunConfiguration.Clients <= MAX_THREADS)
                 {
-                    if (i + 1 >= Configuration.Clients)
+                    for (int i = 0; i < RunConfiguration.Clients; i++)
                     {
-                        m_Clients.Add(new BenchmarkClient(requests, 1));
-                        requests = 0;
-                    }
-                    else
-                    {
-                        long clientRequests = Math.Min(requests, Configuration.Requests / Math.Max(1, Configuration.Clients));
-                        m_Clients.Add(new BenchmarkClient(clientRequests, 1));
+                        if (i + 1 >= RunConfiguration.Clients)
+                        {
+                            m_Clients.Add(new BenchmarkClient(requests, 1));
+                            requests = 0;
+                        }
+                        else
+                        {
+                            long clientRequests = Math.Min(requests, RunConfiguration.Requests / Math.Max(1, RunConfiguration.Clients));
+                            m_Clients.Add(new BenchmarkClient(clientRequests, 1));
 
-                        requests -= clientRequests;
+                            requests -= clientRequests;
+                        }
                     }
                 }
-            }
-            else
-            {
-                long simultaneosRequests = Configuration.Clients;
-                for (int i = 0; i < MAX_THREADS; i++)
+                else
                 {
-                    if (i + 1 >= MAX_THREADS)
+                    long simultaneosRequests = RunConfiguration.Clients;
+                    for (int i = 0; i < MAX_THREADS; i++)
                     {
-                        m_Clients.Add(new BenchmarkClient(requests, simultaneosRequests));
-                        requests = 0;
-                        simultaneosRequests = 0;
-                    }
-                    else
-                    {
-                        long clientRequests = Math.Min(requests, Configuration.Requests / Math.Max(1, MAX_THREADS));
-                        long clientSimultaneosRequests = Math.Min(simultaneosRequests, Configuration.Clients / Math.Max(1, MAX_THREADS));
-                        m_Clients.Add(new BenchmarkClient(clientRequests, clientSimultaneosRequests));
+                        if (i + 1 >= MAX_THREADS)
+                        {
+                            m_Clients.Add(new BenchmarkClient(requests, simultaneosRequests));
+                            requests = 0;
+                            simultaneosRequests = 0;
+                        }
+                        else
+                        {
+                            long clientRequests = Math.Min(requests, RunConfiguration.Requests / Math.Max(1, MAX_THREADS));
+                            long clientSimultaneosRequests = Math.Min(simultaneosRequests, RunConfiguration.Clients / Math.Max(1, MAX_THREADS));
+                            m_Clients.Add(new BenchmarkClient(clientRequests, clientSimultaneosRequests));
 
-                        requests -= clientRequests;
-                        simultaneosRequests -= clientSimultaneosRequests;
+                            requests -= clientRequests;
+                            simultaneosRequests -= clientSimultaneosRequests;
+                        }
                     }
                 }
             }
@@ -280,7 +308,9 @@ namespace ArgosBenchmark
 
         private void PrintResults()
         {
-            File.AppendAllText(OUTPUT_FILE, $"{m_Configuration.ApiBase};{m_SqlImage.SqlFilePath};{m_Configuration.Clients};{m_Configuration.Requests};{TotTime.TotalMilliseconds};{MinTime.TotalMilliseconds};{MaxTime.TotalMilliseconds};{AvgTime.TotalMilliseconds};{SucceededRequests};{FailedRequests}{Environment.NewLine}");
+            BenchmarkRun run = m_CurrentRun ?? m_Configuration.Runs.Last();
+
+            File.AppendAllText(OUTPUT_FILE, $"{m_Configuration.ApiBase};{m_Configuration.SqlImage.SqlFilePath};{run.Clients};{run.Requests};{TotTime.TotalMilliseconds};{MinTime.TotalMilliseconds};{MaxTime.TotalMilliseconds};{AvgTime.TotalMilliseconds};{SucceededRequests};{FailedRequests}{Environment.NewLine}");
 
             Console.Write(
 $@"Benchmark Results:
@@ -294,17 +324,57 @@ $@"Benchmark Results:
 );
         }
 
-        private void Client_Finished(BenchmarkClient Sender)
+        private BenchmarkRun NextRun()
         {
-            foreach (BenchmarkClient client in m_Clients)
+            for (int i = 1; i < m_Configuration.Runs.Count; i++)
             {
-                if (client.Running)
+                if (m_Configuration.Runs[i - 1] == m_CurrentRun)
                 {
-                    return;
+                    return m_Configuration.Runs[i];
                 }
             }
 
-            Stop();
+            return null;
+        }
+
+        private void StartNextRun()
+        {
+            lock (m_Lock)
+            {
+                StopClients();
+                PrintResults();
+
+                if (m_CurrentRepetitions >= m_CurrentRun.Repetitions)
+                {
+                    m_CurrentRun = NextRun();
+                    m_CurrentRepetitions = 0;
+                }
+
+                if (m_CurrentRun == null)
+                {
+                    Stop();
+                    return;
+                }
+
+                CreateClients(m_CurrentRun);
+                StartClients();
+            }
+        }
+
+        private void Client_Finished(BenchmarkClient Sender)
+        {
+            lock (m_Lock)
+            {
+                foreach (BenchmarkClient client in m_Clients)
+                {
+                    if (client.Running)
+                    {
+                        return;
+                    }
+                }
+
+                StartNextRun();
+            }
         }
         #endregion
     }

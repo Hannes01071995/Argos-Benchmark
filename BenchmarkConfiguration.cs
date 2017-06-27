@@ -11,9 +11,9 @@ namespace ArgosBenchmark
         #region props
         public string ApiBase { get; set; } = "http://localhost:8989/argos";
 
-        public long Clients { get; set; } = 1;
+        public SqlImage SqlImage { get; set; } = null;
 
-        public long Requests { get; set; } = (long)1e4;
+        public List<BenchmarkRun> Runs { get; } = new List<BenchmarkRun>();
         #endregion
     }
 }

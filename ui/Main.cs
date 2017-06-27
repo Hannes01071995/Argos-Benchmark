@@ -30,7 +30,6 @@ namespace ArgosBenchmark.ui
         #region private members
         private BenchmarkConfiguration m_Configuration = new BenchmarkConfiguration();
         private Timer m_RefreshProgressTimer = new Timer();
-        private SqlImage m_SqlImage;
         #endregion
 
         #region private const
@@ -42,27 +41,37 @@ namespace ArgosBenchmark.ui
         private void DisplayConfiguration()
         {
             txtApiBase.Text = m_Configuration.ApiBase;
-            nupClients.Value = m_Configuration.Clients;
-            nupTotalRequests.Value = m_Configuration.Requests;
+            txtSqlFile.Text = m_Configuration.SqlImage?.SqlFilePath;
         }
 
         private void ToggleUILock()
         {
             txtApiBase.Enabled = !txtApiBase.Enabled;
-            nupClients.Enabled = !nupClients.Enabled;
-            nupTotalRequests.Enabled = !nupTotalRequests.Enabled;
             bSelectSqlFile.Enabled = !bSelectSqlFile.Enabled;
+            contextListRuns.Enabled = !contextListRuns.Enabled;
         }
 
-        private void SetProgress(double Progress)
+        private void SetProgress(double CurrentProgress, double TotalProgress)
         {
-            lProgress.Text = string.Format("{0:P2}", Progress);
-            this.Progress.Value = (int)(Math.Min(1, Progress) * this.Progress.Maximum);
+            for (int i = 0; i < BenchmarkRunner.Instance.CurrentRunIndex; i++)
+            {
+                string finished = string.Format("{0:P2}", 1);
+
+                if (listRuns.Items[i].SubItems[0].Text != finished)
+                {
+                    listRuns.Items[i].SubItems[0].Text = finished;
+                }
+            }
+
+            listRuns.Items[BenchmarkRunner.Instance.CurrentRunIndex].SubItems[0].Text = string.Format("{0:P2}", CurrentProgress);
+            lProgress.Text = string.Format("{0:P2}", TotalProgress);
+            Progress.Value = (int)(Math.Min(1, TotalProgress) * Progress.Maximum);
         }
 
         private void RefreshProgressTimer_Tick(object sender, EventArgs e)
         {
-            SetProgress(BenchmarkRunner.Instance.Progress);
+            double progress = Math.Max(0, Math.Min(1, BenchmarkRunner.Instance.Progress));
+            SetProgress(progress, (BenchmarkRunner.Instance.CurrentRunIndex / ((double)m_Configuration.Runs.Count)) + (progress / m_Configuration.Runs.Count));
         }
 
         private void bStart_Click(object sender, EventArgs e)
@@ -72,16 +81,16 @@ namespace ArgosBenchmark.ui
                 ToggleUILock();
                 try
                 {
-                    if (m_SqlImage?.SqlFilePath != txtSqlFile.Text)
+                    if (m_Configuration.SqlImage?.SqlFilePath != txtSqlFile.Text)
                     {
-                        m_SqlImage = new SqlImage(txtSqlFile.Text);
+                        m_Configuration.SqlImage = new SqlImage(txtSqlFile.Text);
                     }
 
                     bStart.Text = STOP_TEXT;
-                    SetProgress(0);
-                    BenchmarkRunner.Instance.Run(m_Configuration, m_SqlImage);
+                    BenchmarkRunner.Instance.Run(m_Configuration);
+                    SetProgress(0, 0);
                 }
-                catch (Exception)
+                catch (Exception ex)
                 {
                     MessageBox.Show("Unable to parse sql", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
                     return;
@@ -97,16 +106,6 @@ namespace ArgosBenchmark.ui
         private void txtApiBase_TextChanged(object sender, EventArgs e)
         {
             m_Configuration.ApiBase = txtApiBase.Text;
-        }
-
-        private void nupClients_ValueChanged(object sender, EventArgs e)
-        {
-            m_Configuration.Clients = (long)nupClients.Value;
-        }
-
-        private void nupTotalRequests_ValueChanged(object sender, EventArgs e)
-        {
-            m_Configuration.Requests = (long)nupTotalRequests.Value;
         }
 
         private void Main_FormClosing(object sender, FormClosingEventArgs e)
@@ -127,7 +126,7 @@ namespace ArgosBenchmark.ui
                 return;
             }
 
-            SetProgress(1);
+            SetProgress(1, 1);
 
             m_RefreshProgressTimer.Stop();
             bStart.Text = START_TEXT;
@@ -143,6 +142,39 @@ namespace ArgosBenchmark.ui
             {
                 txtSqlFile.Text = dialog.FileName;
             }
+        }
+
+        private void addToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            CreateBenchmarkRun newRun = new CreateBenchmarkRun();
+
+            if (m_Configuration.Runs.Count > 0)
+            {
+                newRun.Run = m_Configuration.Runs.Last().Copy();
+            }
+
+            if (newRun.ShowDialog() == DialogResult.OK)
+            {
+                m_Configuration.Runs.Add(newRun.Run);
+
+                ListViewItem newItem = new ListViewItem(string.Format("{0:P2}", 0));
+                newItem.SubItems.Add(newRun.Run.Clients.ToString());
+                newItem.SubItems.Add(newRun.Run.Requests.ToString());
+                newItem.SubItems.Add(newRun.Run.Repetitions.ToString());
+
+                listRuns.Items.Add(newItem);
+            }
+        }
+
+        private void removeToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            if (listRuns.SelectedItems.Count != 0)
+            {
+                return;
+            }
+
+            m_Configuration.Runs.RemoveAt(listRuns.SelectedItems[0].Index);
+            listRuns.Items.Remove(listRuns.SelectedItems[0]);
         }
         #endregion
     }
